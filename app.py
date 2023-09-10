@@ -1,9 +1,11 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from recommendations import recommendation
 from random_string import generate_unique_random_string
 
 
 app = Flask(__name__)
+CORS(app)
 
 existing_strings = set()
 groups = {}
