@@ -1,56 +1,48 @@
 import googlemaps
-import pandas as pd
-import time
+import json 
+import os
+from dotenv import load_dotenv
+import openai
 
-API_KEY = 'AIzaSyBIfvotj8AMSUUPMb0ZrOq0lMJiYKfeNjA'
-map_client = googlemaps.Client(API_KEY)
+load_dotenv()
 
-def generate_excel_info(location: tuple[float,float], cuisine_type : str, radius: int):
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+OPEN_AI_KEY = os.getenv("OPEN_AI_KEY")
+
+map_client = googlemaps.Client(GOOGLE_API_KEY)
+openai.api_key = OPEN_AI_KEY
+
+def generate_recommendations(location: tuple[float,float], cuisine_types : list[str], radius: int):
     '''
 
     :param location: center location as tuple (lat,long)
-    :param cuisine_type: appropriate cuisine type as string
+    :param cuisine_type: cuisine types as strings in a list
     :param radius: radius of search, smaller radius is closer to center but larger radius gets better results
-    :return: None, creates Excel sheet with url and other info
+    :return: JSON object of recommendations
     '''
 
-    business_list = []
+    response = {
+        "results": []
+    }
+    for cuisine in cuisine_types:
+      res = map_client.places_nearby(
+          location = location,
+          keyword = cuisine,
+          radius = radius
+      )
+      print(type(res.get('results')))
+      response['results'].append({
+        "cuisine": cuisine,
+        "result": get_first_five_elements(res.get('results'))
+      })
 
-    response = map_client.places_nearby(
-        location = location,
-        keyword = cuisine_type,
-        radius = radius
-    )
+    return json.dumps(response)
 
-    #check if any results were gotten
-    print(response)
-
-    #if results empty break
-    if len(response.get('results')) == 0:
-        print("No results were found, try increasing the radius")
-        return
-
-    business_list.extend(response.get('results'))
-    next_page_token = response.get('next_page_token')
-
-    while next_page_token:
-
-        #tutorial guy said if there was no pause something bad would happen
-        time.sleep(2)
-        response = map_client.places_nearby(
-            location=location,
-            keyword=cuisine_type,
-            radius=radius,
-            page_token = next_page_token
-        )
-
-        business_list.extend(response.get('results'))
-        next_page_token = response.get('next_page_token')
-
-    df = pd.DataFrame(business_list)
-    df['url'] = 'https://www.google.com/maps/place/?q=place_id:' + df['place_id']
-
-    df.to_excel(f'{cuisine_type} list.xlsx',index=False)
+def get_first_five_elements(my_list):
+    if len(my_list) >= 5:
+        return my_list[:5]
+    else:
+        return my_list
 
 def find_center(location_list: list[tuple]) -> tuple:
     '''
@@ -72,6 +64,23 @@ def find_center(location_list: list[tuple]) -> tuple:
 
     return result
 
-def recommendation(location_list: list[tuple], cuisine_type: str, radius: int):
-    center = find_center(location_list)
-    generate_excel_info(center,cuisine_type,radius)
+def find_top_food_preference(food_preferences: list[str]):
+    prompt = "Given the following the food preferences, tell me top 3 most popular food preferences by putting them into an array of singular words describing the cuisine of preference and only returning that array. If there's not enough for 3, give as many as possible. \n\n" + "\n".join(food_preferences)
+    
+    response = openai.ChatCompletion.create(
+      model = "gpt-3.5-turbo",
+      temperature = 0.2,
+      max_tokens = 1000,
+      messages = [
+        {"role": "user", "content": prompt}
+      ]
+    )
+
+
+
+    return json.loads(response['choices'][0]['message']['content'])
+      
+def recommendation(location_list: list[list], food_preferences: list[str]):
+    return generate_recommendations(find_center(location_list),find_top_food_preference(food_preferences),30)
+
+test_locations= [(-37.81318596153627, 144.96377579645537), (-37.78519512418844, 144.7710836503532), (-37.861495369958895, 145.11253287046154)]
